@@ -1,11 +1,18 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.settings import settings
-from utils.logger import logger
-from api.routes import diagnose, health
+# Додати корінь проекту в sys.path, щоб працював запуск `python api/main.py`
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from config.settings import settings  # noqa: E402
+from utils.logger import logger  # noqa: E402
+from api.routes import diagnose, health  # noqa: E402
 
 
 @asynccontextmanager
