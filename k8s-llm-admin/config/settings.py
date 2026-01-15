@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     
     # Ollama LLM
     OLLAMA_BASE_URL: str = Field(default="http://localhost:11434", env="OLLAMA_URL")
-    OLLAMA_MODEL: str = Field(default="llama3.2:3b-instruct", env="OLLAMA_MODEL")
+    OLLAMA_MODEL: str = Field(default="llama3.2:3b", env="OLLAMA_MODEL")
     OLLAMA_TIMEOUT: int = Field(default=120, env="OLLAMA_TIMEOUT")
     
     # LLM Parameters

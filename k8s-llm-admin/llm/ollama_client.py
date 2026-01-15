@@ -188,6 +188,14 @@ class OllamaClient:
                     raise
                 time.sleep(2 ** attempt)  # Exponential backoff
             
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    error_msg = f"Модель '{self.model}' не знайдена. Перевірте чи модель встановлена: ollama list"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg) from e
+                logger.error(f"HTTP error: {e.response.status_code} - {e.response.text}")
+                raise
+            
             except requests.exceptions.RequestException as e:
                 logger.error(f"Request failed: {e}")
                 raise
