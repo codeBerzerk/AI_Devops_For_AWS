@@ -50,18 +50,14 @@ async def diagnose_issue(request: DiagnoseRequest):
         # Конвертувати language string → enum
         lang = Language.UKRAINIAN if request.language == "uk" else Language.ENGLISH
 
-        # Створити diagnostic request
+        # Створити diagnostic request (cluster_context опціональний)
         diag_req = DiagnosticRequest(
             user_message=request.message,
             resource_type=request.resource_type,
             namespace=request.namespace,
             kubectl_output=request.kubectl_output,
             language=lang,
-            eks_context={
-                "cluster_name": "prod-cluster",  # TODO: from settings
-                "region": "eu-west-1",
-                "k8s_version": "1.28",
-            },
+            cluster_context=None,  # Можна додати з settings або залишити None
         )
 
         # Виконати діагностику

@@ -21,7 +21,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"🚀 Starting {settings.PROJECT_NAME} v{settings.VERSION}")
     logger.info(f"Ollama URL: {settings.OLLAMA_BASE_URL}")
-    logger.info(f"EKS Cluster: {settings.EKS_CLUSTER_NAME}")
+    if settings.EKS_CLUSTER_NAME:
+        logger.info(f"EKS Cluster: {settings.EKS_CLUSTER_NAME}")
+    else:
+        logger.info("Kubernetes: Self-managed cluster (not EKS)")
 
     # Check Ollama health
     from llm.ollama_client import get_ollama_client

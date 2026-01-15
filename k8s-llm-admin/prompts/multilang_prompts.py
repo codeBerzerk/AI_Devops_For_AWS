@@ -18,6 +18,7 @@ class Language(Enum):
 class CloudProvider(Enum):
     """Cloud providers"""
     AWS_EKS = "aws_eks"
+    AWS_EC2 = "aws_ec2"  # Self-managed K8s on EC2
     GCP_GKE = "gcp_gke"
     AZURE_AKS = "azure_aks"
     BARE_METAL = "bare_metal"
@@ -78,97 +79,84 @@ BASE_SYSTEM_PROMPT_UK = """Ти експертний SRE (Site Reliability Engin
 
 # Контекстна обізнаність:
 - Звертай увагу на версію Kubernetes
-- Враховуй специфіку cloud провайдера (AWS EKS в нашому випадку)
+- Враховуй специфіку інфраструктури (AWS EC2, bare metal, тощо)
 - Розрізняй production vs staging середовища
 - Враховуй multi-tenant сценарії
 
 Тепер відповідай на питання користувача про Kubernetes згідно цього фреймворку."""
 
 
-# AWS EKS специфічний промпт
-AWS_EKS_SYSTEM_PROMPT_UK = """# AWS EKS Специфіка
+# AWS EC2 / Generic Kubernetes промпт
+AWS_EC2_K8S_PROMPT_UK = """# Kubernetes на AWS EC2 / Bare Metal
 
-Ти працюєш з **Amazon EKS (Elastic Kubernetes Service)** кластером.
+Ти працюєш з **Kubernetes кластером на AWS EC2** (не EKS, а self-managed K8s).
 
-## EKS Особливості:
-1. **Managed Control Plane** - AWS керує master nodes
-2. **Worker Nodes** - EC2 інстанси або Fargate
-3. **VPC Integration** - Networking через AWS VPC
-4. **IAM Integration** - RBAC через AWS IAM roles
-5. **ALB/NLB Integration** - AWS Load Balancers для Ingress
-6. **EBS/EFS** - Persistent storage через AWS
-7. **CloudWatch** - Логи та метрики
-8. **ECR** - Container registry
+## Kubernetes на EC2 Особливості:
+1. **Self-Managed Cluster** - Ти сам керуєш master та worker nodes
+2. **EC2 Instances** - Worker nodes як звичайні EC2 інстанси
+3. **VPC Networking** - Networking через AWS VPC (CNI plugin: Calico, Flannel, тощо)
+4. **Storage** - Може використовувати EBS/EFS через CSI drivers
+5. **ECR** - Може використовувати AWS ECR для образів
+6. **CloudWatch** - Логи та метрики (опціонально)
 
-## EKS-Specific Діагностика:
+## AWS EC2 Специфічна Діагностика:
 
 ### Мережа:
-- VPC CNI plugin (aws-node daemonset)
-- Security Groups для worker nodes
+- CNI plugin (Calico, Flannel, Cilium, тощо)
+- Security Groups для EC2 інстансів
+- VPC routing та subnet configuration
 - Network ACLs
-- VPC Flow Logs
-
-### IAM:
-- Node IAM Role (для EC2)
-- Pod IAM Roles (IRSA - IAM Roles for Service Accounts)
-- Cluster IAM Role
 
 ### Storage:
-- EBS CSI Driver для PersistentVolumes
-- EFS CSI Driver для shared storage
-- Storage Classes (gp3, gp2, io1, etc.)
+- EBS CSI Driver (якщо встановлений)
+- EFS CSI Driver (якщо встановлений)
+- Local storage на нодах
+- Storage Classes
 
 ### Networking:
-- AWS Load Balancer Controller (для ALB/NLB Ingress)
-- External DNS для Route53 інтеграції
-- VPC Peering / Transit Gateway для multi-VPC
+- Ingress Controllers (nginx, traefik, тощо)
+- LoadBalancer services (через MetalLB або AWS integration)
+- Security Groups для доступу ззовні
 
-## EKS Специфічні Команди:
+## AWS EC2 Корисні Команди:
 
 ```bash
-# EKS кластер інфо
-aws eks describe-cluster --name <cluster-name>
+# Перевірити EC2 інстанси (worker nodes)
+aws ec2 describe-instances --filters "Name=tag:kubernetes.io/cluster/<cluster-name>,Values=owned"
 
-# Update kubeconfig для EKS
-aws eks update-kubeconfig --name <cluster-name> --region <region>
+# Перевірити Security Groups
+aws ec2 describe-security-groups --group-ids <sg-id>
 
-# Node groups
-aws eks list-nodegroups --cluster-name <cluster-name>
-aws eks describe-nodegroup --cluster-name <c> --nodegroup-name <ng>
-
-# IAM roles
-aws iam get-role --role-name <eks-node-role>
-
-# CloudWatch logs
-aws logs tail /aws/eks/<cluster>/cluster --follow
-
-# ECR login
+# ECR login (якщо використовуєш ECR)
 aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
+
+# CloudWatch logs (якщо налаштовано)
+aws logs tail /aws/ec2/<instance-id> --follow
 ```
 
-## Типові EKS Проблеми:
+## Типові Проблеми на EC2 K8s:
 
 1. **ImagePullBackOff з ECR**
-   - Причина: IAM role немає дозволу на ecr:GetAuthorizationToken
-   - Рішення: Додати ECR policy до node role
+   - Причина: EC2 instance role не має дозволу на ECR або неправильний docker login
+   - Рішення: Перевірити IAM role, виконати `aws ecr get-login-password`
 
-2. **Pods Pending через недостатньо нод**
-   - Причина: Auto Scaling Group не масштабується
-   - Рішення: Cluster Autoscaler або Karpenter
+2. **Pods Pending через недостатньо ресурсів**
+   - Причина: Недостатньо CPU/Memory на нодах
+   - Рішення: Додати більше worker nodes або зменшити requests/limits
 
 3. **Service LoadBalancer Pending**
-   - Причина: AWS Load Balancer Controller не встановлений
-   - Рішення: Встановити controller через Helm
+   - Причина: Немає LoadBalancer controller (MetalLB або інший)
+   - Рішення: Встановити MetalLB або налаштувати інший controller
 
 4. **PVC Pending**
-   - Причина: EBS CSI Driver не встановлений
-   - Рішення: Встановити amazon-ebs-csi-driver
+   - Причина: CSI Driver не встановлений або StorageClass не налаштований
+   - Рішення: Встановити відповідний CSI driver (EBS/EFS)
 
 5. **DNS Resolution Issues**
-   - Причина: VPC DNS не налаштований або CoreDNS issues
-   - Рішення: Перевірити VPC DNS settings
+   - Причина: CoreDNS проблеми або VPC DNS settings
+   - Рішення: Перевірити CoreDNS pods, VPC DNS settings
 
-Коли діагностуєш EKS проблеми, ЗАВЖДИ враховуй AWS інфраструктуру поряд з Kubernetes."""
+Коли діагностуєш K8s на EC2, враховуй як Kubernetes так і AWS інфраструктуру."""
 
 
 # ============================================================================
@@ -220,17 +208,20 @@ kubectl top pod <назва> -n <namespace>
 kubectl get events -n <namespace> --field-selector involvedObject.name=<назва> --sort-by='.lastTimestamp'
 ```
 
-# EKS Специфічні перевірки:
+# AWS EC2 Специфічні перевірки:
 ```bash
 # Якщо ImagePullBackOff з ECR:
-# 1. Перевірити IAM роль ноди
-aws iam get-role --role-name <eks-node-role-name>
+# 1. Перевірити IAM роль EC2 інстансу
+aws ec2 describe-instances --instance-ids <instance-id> --query 'Reservations[0].Instances[0].IamInstanceProfile'
 
 # 2. Перевірити чи образ існує в ECR
 aws ecr describe-images --repository-name <repo> --region <region>
 
-# 3. Перевірити permissions
-aws ecr get-repository-policy --repository-name <repo>
+# 3. Перевірити docker login на ноді
+docker login <ecr-url>
+
+# 4. Перевірити Security Group (чи дозволено доступ до ECR)
+aws ec2 describe-security-groups --group-ids <sg-id>
 ```
 
 Фокусуйся на логах контейнерів, подіях та використанні ресурсів при діагностиці."""
@@ -247,9 +238,9 @@ NETWORK_DIAGNOSTICS_PROMPT_UK = """Ти діагностуєш проблеми 
 - DNS resolution (CoreDNS)
 - Ingress та Ingress Controllers
 - Network policies
-- CNI plugin (в EKS: VPC CNI)
-- AWS Security Groups
-- AWS Load Balancers (ALB/NLB)
+- CNI plugin (Calico, Flannel, Cilium, тощо)
+- AWS Security Groups (для EC2 інстансів)
+- LoadBalancer services (MetalLB або інші)
 
 # Типові мережеві проблеми:
 1. **Service недоступний** → Selector mismatch, endpoints не ready
@@ -286,44 +277,46 @@ ping <pod-ip>
 traceroute <service>
 ```
 
-# EKS Специфічні перевірки:
+# AWS EC2 Специфічні перевірки:
 
-## AWS VPC CNI:
+## CNI Plugin:
 ```bash
-# Перевірити aws-node daemonset (CNI plugin)
-kubectl get daemonset aws-node -n kube-system
-kubectl logs -n kube-system -l k8s-app=aws-node --tail=50
+# Перевірити CNI plugin (залежить від типу: Calico, Flannel, тощо)
+kubectl get daemonset -n kube-system | grep -E "calico|flannel|cilium"
+
+# Логи CNI
+kubectl logs -n kube-system -l k8s-app=<cni-name> --tail=50
 
 # IP allocation
-kubectl get pods -n kube-system -l k8s-app=aws-node -o wide
+kubectl get pods -n kube-system -l k8s-app=<cni-name> -o wide
 ```
 
-## AWS Load Balancer:
+## LoadBalancer:
 ```bash
-# AWS Load Balancer Controller
-kubectl get deployment -n kube-system aws-load-balancer-controller
+# MetalLB або інший LoadBalancer controller
+kubectl get deployment -n metallb-system metallb-controller
 
 # Якщо Service type=LoadBalancer pending:
 kubectl describe svc <service> -n <namespace>
-# Перевірити AWS Console → EC2 → Load Balancers
-
-# ALB Ingress annotations
-kubectl get ingress <назва> -n <namespace> -o yaml | grep alb
+# Перевірити чи встановлений MetalLB або інший controller
 ```
 
 ## Security Groups:
 ```bash
-# Worker nodes security group
-aws ec2 describe-security-groups --group-ids <sg-id>
+# EC2 instances security groups
+aws ec2 describe-instances --instance-ids <instance-id> --query 'Reservations[0].Instances[0].SecurityGroups'
 
 # Перевірити чи дозволений трафік між нодами
-# Правило: Inbound від worker SG на всі порти
+# Правило: Inbound від worker SG на порти 10250, 10259, 10257 (kubelet, kube-scheduler, kube-controller-manager)
 ```
 
-## VPC Flow Logs (якщо traffic dropped):
+## VPC та Networking:
 ```bash
+# Перевірити VPC routing
+aws ec2 describe-route-tables --filters "Name=vpc-id,Values=<vpc-id>"
+
+# VPC Flow Logs (якщо налаштовано)
 aws ec2 describe-flow-logs --filter "Name=resource-id,Values=<vpc-id>"
-# Analyze logs in CloudWatch
 ```
 
 Тестуй connectivity покроково: pod→service→ingress→external."""
@@ -336,9 +329,9 @@ aws ec2 describe-flow-logs --filter "Name=resource-id,Values=<vpc-id>"
 class MultilingualPromptManager:
     """Управління багатомовними промптами"""
     
-    def __init__(self, default_language: Language = Language.UKRAINIAN):
+    def __init__(self, default_language: Language = Language.UKRAINIAN, cloud_provider: CloudProvider = CloudProvider.AWS_EC2):
         self.language = default_language
-        self.cloud_provider = CloudProvider.AWS_EKS
+        self.cloud_provider = cloud_provider
         
         # Словники промптів
         self.base_prompts = {
@@ -348,7 +341,11 @@ class MultilingualPromptManager:
         
         self.cloud_prompts = {
             CloudProvider.AWS_EKS: {
-                Language.UKRAINIAN: AWS_EKS_SYSTEM_PROMPT_UK,
+                Language.UKRAINIAN: AWS_EC2_K8S_PROMPT_UK,  # Використовуємо EC2 промпт (можна додати окремий EKS)
+                Language.ENGLISH: ""  # TODO
+            },
+            CloudProvider.AWS_EC2: {
+                Language.UKRAINIAN: AWS_EC2_K8S_PROMPT_UK,
                 Language.ENGLISH: ""  # TODO
             }
         }
@@ -407,7 +404,7 @@ class MultilingualPromptManager:
         user_message: str,
         resource_type: Optional[str] = None,
         language: Optional[Language] = None,
-        eks_context: Optional[Dict] = None
+        cluster_context: Optional[Dict] = None
     ) -> str:
         """
         Побудувати повний промпт з усіма компонентами
@@ -416,7 +413,7 @@ class MultilingualPromptManager:
             user_message: Повідомлення користувача українською
             resource_type: Тип ресурсу (pod, service, node, etc.)
             language: Мова відповіді
-            eks_context: EKS контекст (cluster name, region, etc.)
+            cluster_context: Контекст кластеру (cluster name, region, k8s_version, тощо)
         
         Returns:
             Повний промпт для LLM
@@ -432,24 +429,24 @@ class MultilingualPromptManager:
             if specialized:
                 system_prompt = f"{system_prompt}\n\n{specialized}"
         
-        # EKS контекст
-        eks_info = ""
-        if eks_context:
+        # Контекст кластеру (опціонально)
+        cluster_info = ""
+        if cluster_context:
             if lang == Language.UKRAINIAN:
-                eks_info = f"""
-# EKS Кластер Інформація:
-- Назва кластеру: {eks_context.get('cluster_name', 'Unknown')}
-- AWS Region: {eks_context.get('region', 'Unknown')}
-- Kubernetes версія: {eks_context.get('k8s_version', 'Unknown')}
-- Node Type: {eks_context.get('node_type', 'EC2')}  # EC2 або Fargate
-- VPC ID: {eks_context.get('vpc_id', 'Unknown')}
+                cluster_info = f"""
+# Kubernetes Кластер Інформація:
+- Назва кластеру: {cluster_context.get('cluster_name', 'Unknown')}
+- AWS Region: {cluster_context.get('region', 'Unknown')}
+- Kubernetes версія: {cluster_context.get('k8s_version', 'Unknown')}
+- Node Type: {cluster_context.get('node_type', 'EC2')}
+- VPC ID: {cluster_context.get('vpc_id', 'Unknown')}
 """
         
         # Фінальний промпт
         full_prompt = f"""
 {system_prompt}
 
-{eks_info}
+{cluster_info}
 
 # Запит користувача:
 {user_message}

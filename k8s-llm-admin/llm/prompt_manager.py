@@ -19,7 +19,7 @@ class DiagnosticRequest:
     namespace: str = "default"
     kubectl_output: Optional[str] = None
     language: Optional[Language] = None
-    eks_context: Optional[Dict[str, Any]] = None
+    cluster_context: Optional[Dict[str, Any]] = None
 
 
 class PromptOrchestrator:
@@ -51,7 +51,7 @@ class PromptOrchestrator:
             user_message=request.user_message,
             resource_type=request.resource_type,
             language=language,
-            eks_context=request.eks_context,
+            cluster_context=request.cluster_context,
         )
 
         logger.debug(f"Згенерований промпт (довжина: {len(full_prompt)} chars)")
