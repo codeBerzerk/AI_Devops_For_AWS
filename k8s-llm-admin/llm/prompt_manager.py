@@ -93,6 +93,49 @@ class PromptOrchestrator:
         ] + messages
 
         return self.llm_client.chat(messages_with_system)
+    
+    def diagnose_stream(self, request: DiagnosticRequest):
+        """
+        Streaming діагностика
+        
+        Args:
+            request: Diagnostic request
+        
+        Yields:
+            Chunks of text from LLM
+        """
+        # 1. Визначити мову якщо не вказана
+        language = request.language
+        if not language:
+            detected = detect_language(request.user_message)
+            language = detected
+            logger.info(f"Визначена мова: {detected.value}")
+        
+        # 2. Згенерувати промпт
+        full_prompt = self.prompt_manager.build_full_prompt(
+            user_message=request.user_message,
+            resource_type=request.resource_type,
+            language=language,
+            cluster_context=request.cluster_context,
+        )
+        
+        logger.debug(f"Згенерований промпт (довжина: {len(full_prompt)} chars)")
+        
+        # 3. Відправити до LLM з streaming
+        try:
+            stream = self.llm_client.generate(
+                prompt=full_prompt,
+                temperature=0.7,
+                max_tokens=2000,
+                stream=True
+            )
+            
+            for chunk in stream:
+                yield chunk
+        
+        except Exception as e:
+            logger.error(f"Помилка LLM streaming: {e}")
+            raise
 
 
 # Global instance
